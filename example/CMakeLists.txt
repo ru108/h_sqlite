@@ -11,6 +11,10 @@ find_package(Threads REQUIRED)
 add_executable(${PROJECT_NAME} ${PROJECT_NAME}.cpp)
 set_property(DIRECTORY PROPERTY VS_STARTUP_PROJECT "${PROJECT_NAME}")
 
+target_compile_definitions(${PROJECT_NAME}
+  PRIVATE $<$<COMPILE_LANG_AND_ID:CXX,MSVC>:-DUNICODE;-D_UNICODE>
+  PRIVATE $<$<COMPILE_LANG_AND_ID:C,MSVC>:-DUNICODE;-D_UNICODE>)
+
 add_subdirectory(../ "${CMAKE_CURRENT_BINARY_DIR}/${_LIBRARY_DEP}" EXCLUDE_FROM_ALL)
 message(STATUS "Using ${_LIBRARY_DEP} via add_subdirectory")
 
