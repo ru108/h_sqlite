@@ -72,3 +72,6 @@ cd .\example
 mkdir build && cd build && cmake ..
 cmake --build . --target sample_h_sqlite
 ```
+
+## License
+The project is available under the [MIT](https://opensource.org/licenses/MIT) license.
