@@ -92,7 +92,7 @@ void h_sqlite3_prepare_bind_step(sqlite3* db, const std::string& sql, First&& fi
 }
 
 void h_handbook_create(sqlite3* db, const std::string_view& handbook) {
-  h_sqlite3_exec(db, fmt::format("CREATE TABLE IF NOT EXISTS {0}({0}_id INTEGER NOT NULL PRIMARY KEY, {0}_name TEXT);", handbook));
+  h_sqlite3_exec(db, fmt::format("CREATE TABLE IF NOT EXISTS {0}({0}_id INTEGER NOT NULL PRIMARY KEY, {0}_name TEXT NOT NULL DEFAULT '');", handbook));
 }
 
 
