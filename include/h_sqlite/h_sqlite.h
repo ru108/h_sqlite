@@ -36,6 +36,7 @@ struct sqlite3_stmt_deleter {
 };
 
 using sqlite3_handle = std::unique_ptr<sqlite3, sqlite3_deleter>;
+using handbook_t = std::tuple<sqlite3_int64, std::string>;
 
 auto make_sqlite3_handle(const std::string& db_name) {
   sqlite3* p;
@@ -128,14 +129,16 @@ std::string h_handbook_get_name(sqlite3* db, const std::string_view& handbook, s
   return "";
 }
 
-std::vector<std::string> h_handbook_get_names(sqlite3* db, const std::string_view& handbook, const char* const order = "ASC") {
+auto h_handbook_get_names(sqlite3* db, const std::string_view& handbook, const char* const order = "ASC") -> std::vector<handbook_t> {
   auto_sqlite3_stmt stmt;
-  std::vector<std::string> names;
+  std::vector<handbook_t> names;
 
-  h_sqlite3_prepare_v2(db, stmt, "SELECT {0}_name FROM {0} ORDER BY {0}_name {1};", handbook, order);
+  h_sqlite3_prepare_v2(db, stmt, "SELECT {0}_id, {0}_name FROM {0} ORDER BY {0}_name {1};", handbook, order);
 
   while (SQLITE_ROW == sqlite3_step(stmt.stmt))
-    names.emplace_back(reinterpret_cast<const char*>(sqlite3_column_text(stmt.stmt, 0)));
+    names.emplace_back(
+      sqlite3_column_int64(stmt.stmt, 0),
+      reinterpret_cast<const char*>(sqlite3_column_text(stmt.stmt, 1)));
 
   return names;
 }
