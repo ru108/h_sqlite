@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.18)
+cmake_minimum_required(VERSION 3.16)
 
 project(h_sqlite VERSION 0.1.0.0 DESCRIPTION "sqlite c++ wrapper components" HOMEPAGE_URL https://github.com/ru108/h_sqlite LANGUAGES CXX)
 string(TOUPPER ${PROJECT_NAME} PROJECT_NAMESPACE)
