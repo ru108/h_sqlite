@@ -129,7 +129,7 @@ std::string h_handbook_get_name(sqlite3* db, const std::string_view& handbook, s
   return "";
 }
 
-auto h_handbook_get_names(sqlite3* db, const std::string_view& handbook, const char* const order = "ASC") -> std::vector<handbook_t> {
+auto h_handbook_get_list(sqlite3* db, const std::string_view& handbook, const char* const order = "ASC") -> std::vector<handbook_t> {
   auto_sqlite3_stmt stmt;
   std::vector<handbook_t> names;
 
