@@ -65,6 +65,8 @@ void h_sqlite3_bind(sqlite3* db, auto_sqlite3_stmt& stmt, int index, First&& fir
     res = sqlite3_bind_text(stmt.stmt, index + 1, first.c_str(), -1, nullptr);
   else if constexpr (std::is_same_v<typename std::decay_t<First>, sqlite3_int64>)
     res = sqlite3_bind_int64(stmt.stmt, index + 1, first);
+  else if constexpr (std::is_same_v<typename std::decay_t<First>, int>)
+    res = sqlite3_bind_int(stmt.stmt, index + 1, first);
 
   if (res)
     throw std::runtime_error{ "Failed to bind statement: "s + sqlite3_errmsg(db) };
