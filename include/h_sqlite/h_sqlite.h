@@ -93,8 +93,71 @@ void h_sqlite3_prepare_bind_step(sqlite3* db, const std::string& sql, First&& fi
     throw std::runtime_error{ "SQl error: "s + sqlite3_errmsg(db) };
 }
 
+namespace detail {
+  template <typename F, typename Tuple, std::size_t ...Idx>
+  auto h_sqlite3_row_impl(F&& f, Tuple&& t, std::index_sequence<Idx...>) {
+    return std::apply([&](const auto& ...items) {
+      return std::apply([&](const auto ...idx) {
+        return std::make_tuple(f(items, idx)...);
+        }, std::make_tuple(Idx...));
+      }, t);
+  }
+}
+
+/// <summary>
+/// Get row results from db
+/// </summary>
+/// <typeparam name="F"></typeparam>
+/// <typeparam name="...Ts"></typeparam>
+/// <param name="f">Function that apply on every column</param>
+/// <param name="t">Tuple template of results</param>
+/// <returns>Tuple of results</returns>
+template <typename F, typename ...Ts>
+auto h_sqlite3_row(F&& f, const std::tuple<Ts...>& t) {
+  return detail::h_sqlite3_row_impl(
+    std::forward<F>(f),
+    std::forward<decltype(t)>(t),
+    std::index_sequence_for<Ts...>{}
+  );
+}
+
+/// <summary>
+/// Convert sqlite3 column to type
+/// </summary>
+/// <param name="stmt"></param>
+/// <returns></returns>
+auto h_sqlite3_column(const auto_sqlite3_stmt& stmt) {
+  return [&](const auto& column, const auto index) {
+    if constexpr (std::is_same_v<std::decay_t<decltype(column)>, long long int>)
+      return sqlite3_column_int64(stmt.stmt, index);
+    if constexpr (std::is_same_v<std::decay_t<decltype(column)>, int>)
+      return sqlite3_column_int(stmt.stmt, index);
+    if constexpr (std::is_same_v<std::decay_t<decltype(column)>, std::string>)
+      return reinterpret_cast<const char*>(sqlite3_column_text(stmt.stmt, index));
+    if constexpr (std::is_same_v<std::decay_t<decltype(column)>, float>)
+      return static_cast<float>(sqlite3_column_double(stmt.stmt, index));
+  };
+};
+
 void h_handbook_create(sqlite3* db, const std::string_view& handbook) {
   h_sqlite3_exec(db, fmt::format("CREATE TABLE IF NOT EXISTS {0}({0}_id INTEGER NOT NULL PRIMARY KEY, {0}_name TEXT NOT NULL DEFAULT '');", handbook));
+}
+
+
+template <typename T>
+[[nodiscard]] auto h_get_row_id_name(sqlite3* db, std::string_view table, const T& param) -> handbook_t {
+  std::string field{ "id" };
+  if constexpr (std::is_same_v<T, std::string_view>)
+    field = "name";
+
+  auto_sqlite3_stmt stmt;
+  h_sqlite3_prepare_v2(db, stmt, "SELECT id, name FROM {} WHERE {}=? LIMIT 1;", table, field);
+  h_sqlite3_bind(db, stmt, 0, param);
+
+  if (SQLITE_ROW == sqlite3_step(stmt.stmt))
+    return h_sqlite3_row(h_sqlite3_column(stmt), handbook_t{});
+
+  return {};
 }
 
 
