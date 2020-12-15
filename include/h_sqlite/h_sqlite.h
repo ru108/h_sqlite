@@ -49,7 +49,7 @@ auto make_sqlite3_handle(const std::string& db_name) {
 }
 
 template <typename... Args>
-void h_sqlite3_prepare_v2(sqlite3* db, auto_sqlite3_stmt& stmt, const std::string_view& sql, Args&&... args) {
+void h_sqlite3_prepare_v2(sqlite3* db, auto_sqlite3_stmt& stmt, std::string_view sql, Args&&... args) {
   if (sqlite3_prepare_v2(db, fmt::format(sql, std::forward<Args>(args)...).c_str(), -1, &stmt.stmt, 0))
     throw std::runtime_error{ "Failed to prepare statement: "s + sqlite3_errmsg(db) };
 }
@@ -59,14 +59,14 @@ void h_sqlite3_bind(sqlite3* db, auto_sqlite3_stmt& stmt, int index, First&& fir
 
   auto res = SQLITE_ERROR;
 
-  if constexpr (std::is_same_v<typename std::decay_t<First>, std::string_view>)
-    res = sqlite3_bind_text(stmt.stmt, index + 1, first.data(), static_cast<int>(first.size()), nullptr);
-  else if constexpr (std::is_same_v<typename std::decay_t<First>, std::string>)
-    res = sqlite3_bind_text(stmt.stmt, index + 1, first.c_str(), -1, nullptr);
-  else if constexpr (std::is_same_v<typename std::decay_t<First>, sqlite3_int64>)
+  if constexpr (std::is_same_v<typename std::decay_t<First>, long long int>)
     res = sqlite3_bind_int64(stmt.stmt, index + 1, first);
   else if constexpr (std::is_same_v<typename std::decay_t<First>, int>)
     res = sqlite3_bind_int(stmt.stmt, index + 1, first);
+  else if constexpr (std::is_same_v<typename std::decay_t<First>, std::string_view>)
+    res = sqlite3_bind_text(stmt.stmt, index + 1, first.data(), static_cast<int>(first.size()), nullptr);
+  else if constexpr (std::is_same_v<typename std::decay_t<First>, std::string>)
+    res = sqlite3_bind_text(stmt.stmt, index + 1, first.c_str(), -1, nullptr);
 
   if (res)
     throw std::runtime_error{ "Failed to bind statement: "s + sqlite3_errmsg(db) };
@@ -82,12 +82,12 @@ void h_sqlite3_exec(sqlite3* db, const std::string& sql) {
     throw std::runtime_error{ "SQL error: "s + err.err };
 }
 
-template <typename First, typename... Args>
-void h_sqlite3_prepare_bind_step(sqlite3* db, const std::string& sql, First&& first, Args&&... args) {
+template <typename... Args>
+void h_sqlite3_prepare_bind_step(sqlite3* db, std::string_view sql, Args&&... args) {
   auto_sqlite3_stmt stmt;
 
   h_sqlite3_prepare_v2(db, stmt, sql);
-  h_sqlite3_bind(db, stmt, 0, first, args...);
+  h_sqlite3_bind(db, stmt, 0, args...);
 
   if (SQLITE_ERROR == sqlite3_step(stmt.stmt))
     throw std::runtime_error{ "SQl error: "s + sqlite3_errmsg(db) };
@@ -130,94 +130,81 @@ auto h_sqlite3_column(const auto_sqlite3_stmt& stmt) {
   return [&](const auto& column, const auto index) {
     if constexpr (std::is_same_v<std::decay_t<decltype(column)>, long long int>)
       return sqlite3_column_int64(stmt.stmt, index);
-    if constexpr (std::is_same_v<std::decay_t<decltype(column)>, int>)
+    else if constexpr (std::is_same_v<std::decay_t<decltype(column)>, int>)
       return sqlite3_column_int(stmt.stmt, index);
-    if constexpr (std::is_same_v<std::decay_t<decltype(column)>, std::string>)
-      return reinterpret_cast<const char*>(sqlite3_column_text(stmt.stmt, index));
-    if constexpr (std::is_same_v<std::decay_t<decltype(column)>, float>)
+    else if constexpr (std::is_same_v<std::decay_t<decltype(column)>, float>)
       return static_cast<float>(sqlite3_column_double(stmt.stmt, index));
+    else if constexpr (std::is_same_v<std::decay_t<decltype(column)>, std::string>)
+      return reinterpret_cast<const char*>(sqlite3_column_text(stmt.stmt, index));
+    else
+      return 0;
   };
 };
 
-void h_handbook_create(sqlite3* db, const std::string_view& handbook) {
-  h_sqlite3_exec(db, fmt::format("CREATE TABLE IF NOT EXISTS {0}({0}_id INTEGER NOT NULL PRIMARY KEY, {0}_name TEXT NOT NULL DEFAULT '');", handbook));
+void h_handbook_create(sqlite3* db, std::string_view handbook) {
+  h_sqlite3_exec(db, fmt::format("CREATE TABLE IF NOT EXISTS {0}(id INTEGER NOT NULL PRIMARY KEY, name TEXT NOT NULL DEFAULT '');", handbook));
 }
 
-
-template <typename T>
-[[nodiscard]] auto h_get_row_id_name(sqlite3* db, std::string_view table, const T& param) -> handbook_t {
-  std::string field{ "id" };
-  if constexpr (std::is_same_v<T, std::string_view>)
-    field = "name";
-
+template <typename T, typename... Args>
+auto h_get_field(sqlite3* db, const T& field, std::string_view sql, Args&&... args) -> T {
   auto_sqlite3_stmt stmt;
-  h_sqlite3_prepare_v2(db, stmt, "SELECT id, name FROM {} WHERE {}=? LIMIT 1;", table, field);
-  h_sqlite3_bind(db, stmt, 0, param);
+  h_sqlite3_prepare_v2(db, stmt, sql);
+  if constexpr (sizeof...(Args) > 0)
+    h_sqlite3_bind(db, stmt, 0, std::forward<Args>(args)...);
 
-  if (SQLITE_ROW == sqlite3_step(stmt.stmt))
-    return h_sqlite3_row(h_sqlite3_column(stmt), handbook_t{});
-
-  return {};
+  if (SQLITE_ROW == sqlite3_step(stmt.stmt)) {
+    if constexpr (std::is_same_v<std::decay_t<T>, long long int>)
+      return sqlite3_column_int64(stmt.stmt, 0);
+    else if constexpr (std::is_same_v<std::decay_t<T>, int>)
+      return sqlite3_column_int(stmt.stmt, 0);
+    else if constexpr (std::is_same_v<std::decay_t<T>, float>)
+      return static_cast<float>(sqlite3_column_double(stmt.stmt, 0));
+    else if constexpr (std::is_same_v<std::decay_t<T>, std::string>)
+      return reinterpret_cast<const char*>(sqlite3_column_text(stmt.stmt, 0));
+    else
+      return 0;
+  }
+  else {
+    if constexpr (std::is_same_v<std::decay_t<T>, std::string>)
+      return std::string{};
+    else
+      return 0;
+  }
 }
 
-
-sqlite3_int64 h_handbook_get_id(sqlite3* db, const std::string_view& handbook, const std::string_view& handbook_name) {
+template <typename T, typename... Args>
+auto h_get_rows(sqlite3* db, const T& type, std::string_view sql, Args&&... args) -> std::vector<T> {
   auto_sqlite3_stmt stmt;
+  h_sqlite3_prepare_v2(db, stmt, sql);
+  if constexpr (sizeof...(Args) > 0)
+    h_sqlite3_bind(db, stmt, 0, std::forward<Args>(args)...);
 
-  h_sqlite3_prepare_v2(db, stmt, "SELECT {0}_id FROM {0} WHERE {0}_name=? LIMIT 1;", handbook);
-  h_sqlite3_bind(db, stmt, 0, handbook_name);
+  std::vector<T> rows;
+  while (SQLITE_ROW == sqlite3_step(stmt.stmt))
+    rows.emplace_back(h_sqlite3_row(h_sqlite3_column(stmt), type));
 
-  if (SQLITE_ROW == sqlite3_step(stmt.stmt))
-    return sqlite3_column_int64(stmt.stmt, 0);
-
-  return 0ll;
+  return rows;
 }
 
-sqlite3_int64 h_handbook_get_id_or_insert(sqlite3* db, const std::string_view& handbook, const std::string_view& handbook_name) {
-  if (auto rowid = h_handbook_get_id(db, handbook, handbook_name); rowid)
+sqlite3_int64 h_handbook_get_id(sqlite3* db, std::string_view handbook, std::string_view handbook_name) {
+  return h_get_field(db, sqlite3_int64{}, fmt::format("SELECT id FROM {} WHERE name=? LIMIT 1;", handbook), handbook_name);
+}
+
+std::string h_handbook_get_name(sqlite3* db, std::string_view handbook, sqlite3_int64 rowid) {
+  return h_get_field(db, std::string{}, fmt::format( "SELECT name FROM {} WHERE id=? LIMIT 1;", handbook), rowid);
+}
+
+sqlite3_int64 h_handbook_get_id_or_insert(sqlite3* db, std::string_view handbook, std::string_view handbook_name) {
+  if (auto rowid = h_handbook_get_id(db, handbook, handbook_name); rowid > 0)
     return rowid;
 
-  h_sqlite3_prepare_bind_step(db, fmt::format("INSERT INTO {0}({0}_name) VALUES(?);", handbook), handbook_name);
+  h_sqlite3_prepare_bind_step(db, fmt::format("INSERT INTO {0}(name) VALUES(?);", handbook), handbook_name);
 
   return sqlite3_last_insert_rowid(db);
 }
 
-std::string h_handbook_get_name(sqlite3* db, const std::string_view& handbook, sqlite3_int64 rowid) {
-  auto_sqlite3_stmt stmt;
-
-  h_sqlite3_prepare_v2(db, stmt, "SELECT {0}_name FROM {0} WHERE {0}_id=? LIMIT 1;", handbook);
-  h_sqlite3_bind(db, stmt, 0, rowid);
-
-  if (SQLITE_ROW == sqlite3_step(stmt.stmt))
-    return reinterpret_cast<const char*>(sqlite3_column_text(stmt.stmt, 0));
-
-  return "";
-}
-
-auto h_handbook_get_list(sqlite3* db, const std::string_view& handbook, const char* const order = "ASC") -> std::vector<handbook_t> {
-  auto_sqlite3_stmt stmt;
-  std::vector<handbook_t> names;
-
-  h_sqlite3_prepare_v2(db, stmt, "SELECT {0}_id, {0}_name FROM {0} ORDER BY {0}_name {1};", handbook, order);
-
-  while (SQLITE_ROW == sqlite3_step(stmt.stmt))
-    names.emplace_back(
-      sqlite3_column_int64(stmt.stmt, 0),
-      reinterpret_cast<const char*>(sqlite3_column_text(stmt.stmt, 1)));
-
-  return names;
-}
-
-std::vector<sqlite3_int64> h_handbook_get_ids(sqlite3* db, const std::string_view& handbook) {
-  auto_sqlite3_stmt stmt;
-  std::vector<sqlite3_int64> ids;
-
-  h_sqlite3_prepare_v2(db, stmt, "SELECT {0}_id FROM {0};", handbook);
-
-  while (SQLITE_ROW == sqlite3_step(stmt.stmt))
-    ids.push_back(sqlite3_column_int64(stmt.stmt, 0));
-
-  return ids;
+auto h_handbook_get_list(sqlite3* db, std::string_view handbook, const char* const order = "ASC") -> std::vector<handbook_t> {
+  return h_get_rows(db, handbook_t{}, fmt::format("SELECT id, name FROM {0} ORDER BY name {1};", handbook, order));
 }
 
 #endif // _H_SQLITE_
