@@ -47,6 +47,11 @@ auto make_sqlite3_handle(const std::string& db_name) {
   return h;
 }
 
+using rowid_t = sqlite3_int64;
+using handbook_t = std::tuple<rowid_t, std::string>;
+using rowid_column_t = std::tuple<rowid_t>;
+using string_column_t = std::tuple<std::string>;
+
 template<typename> inline constexpr bool always_false_v = false;
 
 void h_sqlite3_exec(sqlite3* db, const std::string& sql) {
@@ -68,7 +73,7 @@ void h_sqlite3_bind(sqlite3* db, auto_sqlite3_stmt& stmt, const int index, First
 
   using T = std::decay_t<First>;
 
-  if constexpr (std::is_same_v<T, long long int>)
+  if constexpr (std::is_same_v<T, rowid_t>)
     res = sqlite3_bind_int64(stmt.stmt, index + 1, first);
   else if constexpr (std::is_same_v<T, int>)
     res = sqlite3_bind_int(stmt.stmt, index + 1, first);
@@ -128,11 +133,11 @@ auto h_sqlite3_row(F&& f, std::tuple<Ts...>&& t) {
 /// </summary>
 /// <param name="stmt"></param>
 /// <returns></returns>
-auto h_sqlite3_column(const auto_sqlite3_stmt& stmt) {
+auto h_sqlite3_column(auto_sqlite3_stmt& stmt) {
   return [&](auto&& column, auto&& index) {
     using T = std::decay_t<decltype(column)>;
 
-    if constexpr (std::is_same_v<T, long long int>)
+    if constexpr (std::is_same_v<T, rowid_t>)
       return sqlite3_column_int64(stmt.stmt, index);
     else if constexpr (std::is_same_v<T, int>)
       return sqlite3_column_int(stmt.stmt, index);
@@ -163,14 +168,14 @@ template <typename T, typename... Args>
 auto h_row(sqlite3* db, T&& type, std::string_view sql, Args&&... args) -> std::decay_t<decltype(type)> {
 
   auto rows = h_rows(db, std::forward<T>(type), sql, std::forward<Args>(args)...);
-  return rows.size() > 0 ? rows.front() : type;
+  return !rows.empty() ? rows.front() : type;
 }
 
 template <typename T, typename... Args>
-auto h_column(sqlite3* db, T&& tuple, std::string_view sql, Args&&... args) -> decltype(std::get<0>(tuple)) {
+auto h_column(sqlite3* db, T&& tuple, std::string_view sql, Args&&... args) -> std::decay_t<decltype(std::get<0>(tuple))> {
 
   auto rows = h_rows(db, std::forward<T>(tuple), sql, std::forward<Args>(args)...);
-  return std::get<0>(rows.size() > 0 ? rows.front() : tuple);
+  return std::get<0>(!rows.empty() ? rows.front() : tuple);
 }
 
 
@@ -179,15 +184,15 @@ void h_handbook_create(sqlite3* db, std::string_view handbook) {
   h_sqlite3_exec(db, fmt::format("CREATE TABLE IF NOT EXISTS {0}(id INTEGER NOT NULL PRIMARY KEY, name TEXT NOT NULL DEFAULT '');", handbook));
 }
 
-auto h_handbook_get_id(sqlite3* db, std::string_view handbook, std::string_view handbook_name) -> sqlite3_int64 {
-  return h_column(db, std::tuple<sqlite3_int64>{}, fmt::format("SELECT id FROM {} WHERE name=? LIMIT 1;", handbook), handbook_name);
+auto h_handbook_get_id(sqlite3* db, std::string_view handbook, std::string_view handbook_name) -> rowid_t {
+  return h_column(db, rowid_column_t{}, fmt::format("SELECT id FROM {} WHERE name=? LIMIT 1;", handbook), handbook_name);
 }
 
-auto h_handbook_get_name(sqlite3* db, std::string_view handbook, sqlite3_int64 rowid) -> std::string {
-  return h_column(db, std::tuple<std::string>{}, fmt::format( "SELECT name FROM {} WHERE id=? LIMIT 1;", handbook), rowid);
+auto h_handbook_get_name(sqlite3* db, std::string_view handbook, rowid_t rowid) -> std::string {
+  return h_column(db, string_column_t{}, fmt::format( "SELECT name FROM {} WHERE id=? LIMIT 1;", handbook), rowid);
 }
 
-auto h_handbook_get_id_or_insert(sqlite3* db, std::string_view handbook, std::string_view handbook_name) -> sqlite3_int64 {
+auto h_handbook_get_id_or_insert(sqlite3* db, std::string_view handbook, std::string_view handbook_name) -> rowid_t {
   if (auto rowid = h_handbook_get_id(db, handbook, handbook_name); rowid > 0)
     return rowid;
 
@@ -196,8 +201,8 @@ auto h_handbook_get_id_or_insert(sqlite3* db, std::string_view handbook, std::st
   return sqlite3_last_insert_rowid(db);
 }
 
-auto h_handbook_get_list(sqlite3* db, std::string_view handbook, const char* const order = "ASC") -> std::vector<std::tuple<sqlite3_int64, std::string>> {
-  return h_rows(db, std::tuple<sqlite3_int64, std::string>{}, fmt::format("SELECT id, name FROM {0} ORDER BY name {1};", handbook, order));
+auto h_handbook_get_list(sqlite3* db, std::string_view handbook, const char* const order = "ASC") -> std::vector<handbook_t> {
+  return h_rows(db, handbook_t{}, fmt::format("SELECT id, name FROM {0} ORDER BY name {1};", handbook, order));
 }
 
 #endif // _H_SQLITE_
