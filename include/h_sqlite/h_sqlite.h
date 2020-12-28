@@ -101,40 +101,8 @@ void h_sqlite3_prepare_bind_step(sqlite3* db, std::string_view sql, Args&&... ar
 }
 
 namespace detail {
-  template <typename F, typename Tuple, std::size_t ...Idx>
-  auto h_sqlite3_row_impl(F&& f, Tuple&& t, std::index_sequence<Idx...>) {
-    return std::apply([&](auto&& ...items) {
-      return std::apply([&](auto&& ...idx) {
-        return std::make_tuple(f(std::forward<decltype(items)>(items), std::forward<decltype(idx)>(idx))...);
-        }, std::make_tuple(Idx...));
-      }, t);
-  }
-}
-
-/// <summary>
-/// Get row results from sqlite3
-/// </summary>
-/// <typeparam name="F"></typeparam>
-/// <typeparam name="...Ts"></typeparam>
-/// <param name="f">Function that apply on every column</param>
-/// <param name="t">Tuple template of results</param>
-/// <returns>Tuple of results</returns>
-template <typename F, typename ...Ts>
-auto h_sqlite3_row(F&& f, std::tuple<Ts...>&& t) {
-  return detail::h_sqlite3_row_impl(
-    std::forward<F>(f),
-    std::forward<decltype(t)>(t),
-    std::index_sequence_for<Ts...>{}
-  );
-}
-
-/// <summary>
-/// Return sqlite3 column result by type
-/// </summary>
-/// <param name="stmt"></param>
-/// <returns></returns>
-auto h_sqlite3_column(auto_sqlite3_stmt& stmt) {
-  return [&](auto&& column, auto&& index) {
+  template <typename C, typename I>
+  auto h_sqlite3_column_impl(auto_sqlite3_stmt& stmt, C&& column, const I index) {
     using T = std::decay_t<decltype(column)>;
 
     if constexpr (std::is_same_v<T, rowid_t>)
@@ -148,7 +116,25 @@ auto h_sqlite3_column(auto_sqlite3_stmt& stmt) {
     else
       static_assert(always_false_v<T>, "Unknown column type!");
   };
-};
+
+  template <typename Tuple, std::size_t ...Idx>
+  auto h_sqlite3_row_impl(auto_sqlite3_stmt& stmt, Tuple&& t, std::index_sequence<Idx...>) {
+    return std::apply([&](auto&& ...items) {
+      return std::apply([&](const auto ...idx) {
+        return std::make_tuple(h_sqlite3_column_impl(stmt, std::forward<decltype(items)>(items), idx)...);
+        }, std::make_tuple(Idx...));
+      }, t);
+  }
+}
+
+template <typename ...Ts>
+auto h_sqlite3_row(auto_sqlite3_stmt& stmt, std::tuple<Ts...>&& t) {
+  return detail::h_sqlite3_row_impl(
+    stmt,
+    std::forward<decltype(t)>(t),
+    std::index_sequence_for<Ts...>{}
+  );
+}
 
 template <typename T, typename... Args>
 auto h_rows(sqlite3* db, T&& type, std::string_view sql, Args&&... args) -> std::vector<T> {
@@ -159,7 +145,7 @@ auto h_rows(sqlite3* db, T&& type, std::string_view sql, Args&&... args) -> std:
 
   std::vector<T> rows;
   while (SQLITE_ROW == sqlite3_step(stmt.stmt))
-    rows.emplace_back(h_sqlite3_row(h_sqlite3_column(stmt), std::forward<T>(type)));
+    rows.emplace_back(h_sqlite3_row(stmt, std::forward<T>(type)));
 
   return rows;
 }
