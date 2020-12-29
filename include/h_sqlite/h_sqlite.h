@@ -102,7 +102,7 @@ void h_sqlite3_prepare_bind_step(sqlite3* db, std::string_view sql, Args&&... ar
 
 namespace detail {
   template <typename C, typename I>
-  auto h_sqlite3_column_impl(auto_sqlite3_stmt& stmt, C&& column, const I index) {
+  auto h_sqlite3_column_impl(auto_sqlite3_stmt& stmt, C&& column, I&& index) {
     using T = std::decay_t<decltype(column)>;
 
     if constexpr (std::is_same_v<T, rowid_t>)
@@ -120,8 +120,8 @@ namespace detail {
   template <typename Tuple, std::size_t ...Idx>
   auto h_sqlite3_row_impl(auto_sqlite3_stmt& stmt, Tuple&& t, std::index_sequence<Idx...>) {
     return std::apply([&](auto&& ...items) {
-      return std::apply([&](const auto ...idx) {
-        return std::make_tuple(h_sqlite3_column_impl(stmt, std::forward<decltype(items)>(items), idx)...);
+      return std::apply([&](auto&& ...idx) {
+        return std::make_tuple(h_sqlite3_column_impl(stmt, std::forward<decltype(items)>(items), std::forward<decltype(idx)>(idx))...);
         }, std::make_tuple(Idx...));
       }, t);
   }
