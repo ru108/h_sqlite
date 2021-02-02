@@ -58,13 +58,13 @@ void h_sqlite3_exec(sqlite3* db, const std::string& sql) {
   auto_sqlite3_err err;
 
   if (sqlite3_exec(db, sql.c_str(), nullptr, nullptr, &err.err))
-    throw std::runtime_error{ "SQL error: "s + err.err };
+    throw std::runtime_error{ "SQL error: "s + err.err + "\nSQL command: "s + sql };
 }
 
 template <typename... Args>
 void h_sqlite3_prepare_v2(sqlite3* db, auto_sqlite3_stmt& stmt, std::string_view sql, Args&&... args) {
   if (sqlite3_prepare_v2(db, fmt::format(sql, std::forward<Args>(args)...).c_str(), -1, &stmt.stmt, 0))
-    throw std::runtime_error{ "Failed to prepare statement: "s + sqlite3_errmsg(db) };
+    throw std::runtime_error{ "Failed to prepare statement: "s + sqlite3_errmsg(db) + "\nSQL command: "s + std::string{sql} };
 }
 
 template <typename First, typename... Args>
@@ -97,7 +97,7 @@ void h_sqlite3_prepare_bind_step(sqlite3* db, std::string_view sql, Args&&... ar
   h_sqlite3_bind(db, stmt, 0, std::forward<Args>(args)...);
 
   if (SQLITE_ERROR == sqlite3_step(stmt.stmt))
-    throw std::runtime_error{ "SQl error: "s + sqlite3_errmsg(db) };
+    throw std::runtime_error{ "SQl error: "s + sqlite3_errmsg(db) + "\nSQL command: "s + std::string{sql} };
 }
 
 namespace detail {
@@ -167,7 +167,7 @@ auto h_column(sqlite3* db, T&& tuple, std::string_view sql, Args&&... args) -> s
 
 
 void h_handbook_create(sqlite3* db, std::string_view handbook) {
-  h_sqlite3_exec(db, fmt::format("CREATE TABLE IF NOT EXISTS {0}(id INTEGER NOT NULL PRIMARY KEY, name TEXT NOT NULL DEFAULT '');", handbook));
+  h_sqlite3_exec(db, fmt::format("CREATE TABLE IF NOT EXISTS {}(id INTEGER NOT NULL PRIMARY KEY, name TEXT NOT NULL DEFAULT '');", handbook));
 }
 
 auto h_handbook_get_id(sqlite3* db, std::string_view handbook, std::string_view handbook_name) -> rowid_t {
@@ -182,13 +182,13 @@ auto h_handbook_get_id_or_insert(sqlite3* db, std::string_view handbook, std::st
   if (auto rowid = h_handbook_get_id(db, handbook, handbook_name); rowid > 0)
     return rowid;
 
-  h_sqlite3_prepare_bind_step(db, fmt::format("INSERT INTO {0}(name) VALUES(?);", handbook), handbook_name);
+  h_sqlite3_prepare_bind_step(db, fmt::format("INSERT INTO {}(name) VALUES(?);", handbook), handbook_name);
 
   return sqlite3_last_insert_rowid(db);
 }
 
 auto h_handbook_get_list(sqlite3* db, std::string_view handbook, const char* const order = "ASC") -> std::vector<handbook_t> {
-  return h_rows(db, handbook_t{}, fmt::format("SELECT id, name FROM {0} ORDER BY name {1};", handbook, order));
+  return h_rows(db, handbook_t{}, fmt::format("SELECT id, name FROM {} ORDER BY name {};", handbook, order));
 }
 
 #endif // _H_SQLITE_
